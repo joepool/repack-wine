@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Repackaged Wine Lablels</title>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 2rem; }
+  label { display: block; margin-bottom: 0.5rem; }
+  input { padding: 0.5rem; font-size: 1rem; width: 200px; margin-bottom: 1rem; }
+  #workerUrl { width: 300px; }
+  button { padding: 0.5rem 1rem; font-size: 1rem; margin-bottom: 1rem; }
+  .upc-box { margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+<h1>Repackaged Wine Lablels</h1>
+
+<div class="upc-box">
+  <label for="workerUrl">Cloudflare Worker URL:</label>
+  <input type="text" id="workerUrl" placeholder="https://your-worker.example.com" required>
+  <button id="saveUrl">Save URL</button>
+</div>
+
+<form id="upcForm">
+  <div class="upc-box">
+    <label for="upc1">UPC 1 (required):</label>
+    <input type="text" id="upc1" maxlength="8" pattern="\d{8}" required>
+  </div>
+  <div class="upc-box">
+    <label for="upc2">UPC 2 (optional):</label>
+    <input type="text" id="upc2" maxlength="8" pattern="\d{8}">
+  </div>
+  <button type="submit">Generate PDF</button>
+</form>
+
+<canvas id="barcodeCanvas" style="display:none;"></canvas>
+
+<script>
+const { jsPDF } = window.jspdf;
+
+const workerInput = document.getElementById('workerUrl');
+const savedUrl = localStorage.getItem('workerUrl');
+if (savedUrl) {
+  workerInput.value = savedUrl;
+}
+
+document.getElementById('saveUrl').addEventListener('click', () => {
+  const url = workerInput.value.trim();
+  if (!url) {
+    alert('Please enter a valid URL.');
+    return;
+  }
+  localStorage.setItem('workerUrl', url);
+  alert('Cloudflare Worker URL saved!');
+});
+
+document.getElementById('upcForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const upc1 = document.getElementById('upc1').value;
+  const upc2 = document.getElementById('upc2').value;
+  const workerUrl = localStorage.getItem('workerUrl');
+
+  if (!workerUrl) {
+    alert('Please save the Cloudflare Worker URL first.');
+    return;
+  }
+
+  if (!/^\d{8}$/.test(upc1)) {
+    alert('UPC 1 is required and must be 8 digits.');
+    return;
+  }
+
+  const upcs = [upc1];
+  if (/^\d{8}$/.test(upc2)) upcs.push(upc2);
+
+  try {
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const halfWidth = pageWidth / 2;
+    const canvas = document.getElementById('barcodeCanvas');
+
+for (let i = 0; i < upcs.length; i++) {
+  const upc = upcs[i];
+  const resp = await fetch(`${workerUrl}?upc=${upc}`);
+  const data = await resp.json();
+
+  if (!data.found) {
+    alert(`UPC ${upc} not found!`);
+    continue;
+  }
+
+  const startX = i * halfWidth;
+  let currentY = 20;
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(32);
+  pdf.setTextColor(255,0,0)
+  const textX = startX + halfWidth / 2;
+
+  pdf.text('Repackaged Wine', textX, currentY, { align: "center" });
+  currentY += 20;
+  pdf.setFontSize(18);
+  pdf.setTextColor(0,0,0)
+
+  pdf.text(data.name, textX, currentY, { align: "center" });
+  currentY += 20;
+
+  let wineType = data.type;
+  if (!wineType || wineType.toUpperCase() === 'N/A') {
+    wineType = prompt(`Please enter the wine type for ${data.name}:`, '');
+    if (!wineType) wineType = 'Unknown';
+  }
+  pdf.text(`Type: ${wineType}`, textX, currentY, { align: "center" });
+  currentY += 20;
+
+  pdf.text(`Volume: ${data.weight}`, textX, currentY, { align: "center" });
+  currentY += 20;
+
+  JsBarcode(canvas, upc, { format: "EAN8", displayValue: true, width: 2, height: 50 });
+  const barcodeDataUrl = canvas.toDataURL("image/png");
+
+  const barcodeWidth = 60;
+  const barcodeHeight = 25;
+  const barcodeX = startX + (halfWidth - barcodeWidth) / 2;
+
+  pdf.addImage(barcodeDataUrl, 'PNG', barcodeX, currentY, barcodeWidth, barcodeHeight);
+}
+    pdf.output('dataurlnewwindow');
+  } catch (err) {
+    console.error(err);
+    alert('Error fetching product data or generating PDF.');
+  }
+});
+</script>
+</body>
+</html>
